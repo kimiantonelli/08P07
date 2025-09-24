@@ -5,7 +5,7 @@
 
 // configurable parameters
 #define SND_VEL 346.0     // sound velocity at 24 celsius degree (unit: m/sec)
-#define INTERVAL 100      // sampling interval (unit: msec)
+#define INTERVAL 25       // sampling interval (unit: msec)
 #define PULSE_DURATION 10 // ultra-sound Pulse Duration (unit: usec)
 #define _DIST_MIN 100.0   // minimum distance to be measured (unit: mm)
 #define _DIST_MAX 300.0   // maximum distance to be measured (unit: mm)
@@ -13,49 +13,46 @@
 #define TIMEOUT ((INTERVAL / 2) * 1000.0) // maximum echo waiting time (unit: usec)
 #define SCALE (0.001 * 0.5 * SND_VEL) // coefficent to convert duration to distance
 
-unsigned long last_sampling_time;   // unit: msec
+unsigned long last_sampling_time = 0;   // unit: msec
 
 void setup() {
-  // initialize GPIO pins
   pinMode(PIN_LED, OUTPUT);
   pinMode(PIN_TRIG, OUTPUT);  // sonar TRIGGER
   pinMode(PIN_ECHO, INPUT);   // sonar ECHO
   digitalWrite(PIN_TRIG, LOW);  // turn-off Sonar 
-  
-  // initialize serial port
+
   Serial.begin(57600);
 }
 
-void loop() { 
-  float distance;
-
-  // wait until next sampling time. // polling
-  // millis() returns the number of milliseconds since the program started.
-  //    will overflow after 50 days.
+void loop() {
+  // wait until next sampling time
   if (millis() < (last_sampling_time + INTERVAL))
     return;
 
-  distance = USS_measure(PIN_TRIG, PIN_ECHO); // read distance
+  float distance = USS_measure(PIN_TRIG, PIN_ECHO); // read distance
 
-  if ((distance == 0.0) || (distance > _DIST_MAX)) {
-      distance = _DIST_MAX + 10.0;    // Set Higher Value
-      digitalWrite(PIN_LED, 1);       // LED OFF
-  } else if (distance < _DIST_MIN) {
-      distance = _DIST_MIN - 10.0;    // Set Lower Value
-      digitalWrite(PIN_LED, 1);       // LED OFF
-  } else {    // In desired Range
-      digitalWrite(PIN_LED, 0);       // LED ON      
+  // constrain distance
+  if (distance < _DIST_MIN) distance = _DIST_MIN;
+  if (distance > _DIST_MAX) distance = _DIST_MAX;
+
+  // calculate LED brightness (active low)
+  int ledVal;
+  if (distance <= 150) {              // 100~150mm
+    ledVal = map(distance, 100, 150, 255, 128); // 100->255(off), 150->128(50%)
+  } else if (distance <= 200) {       // 150~200mm
+    ledVal = map(distance, 150, 200, 128, 0);   // 150->128(50%), 200->0(max bright)
+  } else if (distance <= 250) {       // 200~250mm
+    ledVal = map(distance, 200, 250, 0, 128);   // 200->0(max bright), 250->128(50%)
+  } else {                             // 250~300mm
+    ledVal = map(distance, 250, 300, 128, 255); // 250->128(50%), 300->255(off)
   }
 
-  // output the distance to the serial port
-  Serial.print("Min:");        Serial.print(_DIST_MIN);
-  Serial.print(",distance:");  Serial.print(distance);
-  Serial.print(",Max:");       Serial.print(_DIST_MAX);
-  Serial.println("");
-  
-  // do something here
-  //delay(50); // Assume that it takes 50ms to do something.
-  
+  analogWrite(PIN_LED, ledVal); // LED brightness control
+
+  // output distance to serial
+  Serial.print("distance: ");
+  Serial.println(distance);
+
   // update last sampling time
   last_sampling_time += INTERVAL;
 }
@@ -66,16 +63,6 @@ float USS_measure(int TRIG, int ECHO)
   digitalWrite(TRIG, HIGH);
   delayMicroseconds(PULSE_DURATION);
   digitalWrite(TRIG, LOW);
-  
-  return pulseIn(ECHO, HIGH, TIMEOUT) * SCALE; // unit: mm
 
-  // Pulse duration to distance conversion example (target distance = 17.3m)
-  // - pulseIn(ECHO, HIGH, timeout) returns microseconds (음파의 왕복 시간)
-  // - 편도 거리 = (pulseIn() / 1,000,000) * SND_VEL / 2 (미터 단위)
-  //   mm 단위로 하려면 * 1,000이 필요 ==>  SCALE = 0.001 * 0.5 * SND_VEL
-  //
-  // - 예, pusseIn()이 100,000 이면 (= 0.1초, 왕복 거리 34.6m)
-  //        = 100,000 micro*sec * 0.001 milli/micro * 0.5 * 346 meter/sec
-  //        = 100,000 * 0.001 * 0.5 * 346
-  //        = 17,300 mm  ==> 17.3m
+  return pulseIn(ECHO, HIGH, TIMEOUT) * SCALE; // unit: mm
 }
